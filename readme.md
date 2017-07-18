@@ -46,7 +46,7 @@ Chatbot also uses search on n-grams to detect price range patterns (from 50$ to 
 
 -----------------------------------------------------------------------
 
-**Chatbot also recognizes simple ajectives (e.g. cheap, good, inexpensive, etc) in front of nouns and sort the search results accordingly, example:**
+ **Chatbot also recognizes simple ajectives (e.g. cheap, good, inexpensive, etc) in front of nouns and sort the search results accordingly, example:**
 -----------------------------------------------------------------------
 
 >Bot: How can I help you?
@@ -77,7 +77,7 @@ Chatbot also uses search on n-grams to detect price range patterns (from 50$ to 
 
 ------------------------------------------------------------------------------------------------------
 
-**Another example:**
+ **Another example:**
 
 >Bot: How can I help you?
 >
