@@ -1,7 +1,8 @@
 from textblob import TextBlob, Word
 import pandas as pd
 import prettytable
-from StringIO import StringIO
+#from StringIO import StringIO
+from io import StringIO
 import sys
 
 class Bot(object):
@@ -33,7 +34,7 @@ class Bot(object):
                    'Smart Home' : 'home',
                    'Drones': 'drone'
                    }
-        for m, val in mapping.iteritems():
+        for m, val in mapping.items():
             self._data.loc[self._data['category']==m, 'category'] = val
 
         # make all the brands lower case
@@ -43,16 +44,16 @@ class Bot(object):
         self._brands = dict.fromkeys(self._categories, None)
         # fill the dictionary brands
         for c in self._categories:
-            self._brands[c] = map(
-                lambda x: x.lower(), list(
-                    self._data.loc[self._data['category']==c, 'brand'].unique()
+            self._brands[c] = list(
+                map(
+                    lambda x: x.lower(), list(self._data.loc[self._data['category']==c, 'brand'].unique())
                 )
             )
 
         # the following fields describe state of conversation
         self._category = None   # category of interest
         self._brand_list = None # brands of interest
-        self._price_range = [-sys.maxint, +sys.maxint] # price range
+        self._price_range = [-1000, +1000] # price range
 
         self._stop = False # flag for continuing a conversation
 
@@ -111,7 +112,7 @@ class Bot(object):
                 output.seek(0)
                 pt = prettytable.from_csv(output)
 
-                print pt
+                print (pt)
             return df['brands']
 
         return []
@@ -152,9 +153,9 @@ class Bot(object):
             output.seek(0)
             pt = prettytable.from_csv(output)
 
-            print "\n"
-            print pt
-        print "\n\n"
+            print ("\n")
+            print (pt)
+        print ("\n\n")
 
     def _get_chunk_verbs(self, words):
         """
@@ -280,7 +281,7 @@ class Bot(object):
         phrase = phrase.lower()
 
         # replace keywords in the string (if any)
-        for word, replace in self._replace_dict.iteritems():
+        for word, replace in self._replace_dict.items():
             if word in phrase:
                 phrase = phrase.replace(word, replace)
 
@@ -303,7 +304,7 @@ class Bot(object):
 
         # get input from user
         if inp is None:
-            inp = raw_input("Bot: How can I help you?\n" + "User: ")
+            inp = input("Bot: How can I help you?\n" + "User: ")
 
         # patch for exist, not the best solution
         if 'exit' in inp:
@@ -340,7 +341,7 @@ class Bot(object):
         if len(b)>1:
             print ("Bot: Which brand would you prefer?")
 
-            inp = raw_input("User: ")
+            inp = input("User: ")
             # patch for exist, not the best solution
             if 'exit' in inp:
                 self._stop = True
@@ -369,14 +370,14 @@ class Bot(object):
 
         print ("Bot: Would you like to look for something else?")
 
-        inp = raw_input("User: ").lower()
+        inp = input("User: ").lower()
         if 'no' in inp or 'exit' in inp:
             self._stop = True
         else:
             # switch back to default state
             self._category = None
             self._brand_list = None
-            self._price_range = [-sys.maxint, +sys.maxint]
+            self._price_range = [-1000, +1000]
 
             # start new conversation
             self._ask_for_category(inp)
