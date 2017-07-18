@@ -1,6 +1,6 @@
 # Basic ChatBot for product and plan search
 
-## Prerequesites:
+## Prerequisites:
 
 * Python 2.7
 * Library **TextBlob** for NLP
