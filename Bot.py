@@ -53,7 +53,7 @@ class Bot(object):
         # the following fields describe state of conversation
         self._category = None   # category of interest
         self._brand_list = None # brands of interest
-        self._price_range = [-1000, +1000] # price range
+        self._price_range = [-sys.maxsize, +sys.maxsize] # price range
 
         self._stop = False # flag for continuing a conversation
 
@@ -130,15 +130,15 @@ class Bot(object):
         for brand in brand_list:
 
             if brand[1] == 'd':
-                if category[0][1] == 'd':
+                if category[1] == 'd':
                     mode = self._default_mode
                 else:
-                    mode = category[0][1]
+                    mode = category[1]
             else:
                 mode = brand[1]
 
             products = self._data.loc[
-                (self._data['category']==self._category[0][0])&(self._data['brand']==brand[0])&
+                (self._data['category']==self._category[0])&(self._data['brand']==brand[0])&
                 (self._data['plan']>self._price_range[0])&(self._data['plan']<self._price_range[1]),
                 ['name', 'brand', 'plan']]
 
@@ -168,11 +168,11 @@ class Bot(object):
             w = w.split('/')
             if w[2] == 'B-VP':
                 chunk_verbs.append(
-                    [(Word(w[0]).lemmatize(), w[2])]
+                    [(w[0], w[2])]
                 )
             elif w[2] == 'I-VP':
                 chunk_verbs[-1].append(
-                    (Word(w[0]).lemmatize(), w[2])
+                    (w[0], w[2])
                 )
 
         ret_dict = {}
@@ -182,31 +182,20 @@ class Bot(object):
 
         return ret_dict
 
-    def _get_all_nouns(self, words):
+    def _get_chunk_nouns(self, words):
         """
         The function returns list of pairs (noun, mode) where noun can be brand or category
         and mode denotes adjective -- expensive or cheap (for sorting)
         :param words: 
         :return: 
         """
-
         nouns = []
-        for i, w in enumerate(words):
-            # try get adjective before noun
-            prev_w = None
-            if not i==0:
-                prev_w = words[i-1].split('/')
+        for w in words:
             w = w.split('/')
-            if w[1][0:2] == 'NN': # the word is noun
-                if (prev_w is not None and
-                            prev_w[1][0:2] in ('JJ', 'DT')): # the word is adjective before noun
-                    nouns.append(
-                        (Word(w[0]).lemmatize(), self._adjective_dict.get(prev_w[0], 'd'))
-                    )
-                else:
-                    nouns.append(
-                        (Word(w[0]).lemmatize(), 'd')
-                    )
+            if w[2] == 'B-NP':
+                nouns.append([w[0]])
+            elif w[2] == 'I-NP':
+                nouns[-1].append(w[0])
 
         return nouns
 
@@ -225,60 +214,85 @@ class Bot(object):
         :return: 
         """
 
+        lo = None
+        hi = None
         wlist = TextBlob(inp).ngrams(n=4)
         for ngram in wlist:
             if ((ngram[0] == 'from' and ngram[2] == 'to') or
                     (ngram[0] == 'between' and ngram[2] == 'and')):
                 try:
-                    lo = float(ngram[1].strip('$'))
-                    hi = float(ngram[3].strip('$'))
+                    l = float(ngram[1].strip('$'))
+                    h = float(ngram[3].strip('$'))
                 except ValueError:
                     pass
                 else:
-                    self._price_range = [lo, hi]
+                    lo = l
+                    hi = h
 
         wlist = TextBlob(inp).ngrams(n=2)
         for ngram in wlist:
             if ngram[0] == 'below' or ngram[0] == 'under':
                 try:
-                    hi = float(ngram[1].strip('$'))
+                    h = float(ngram[1].strip('$'))
                 except ValueError:
                     pass
                 else:
-                    self._price_range[1]= hi
+                    hi = h
+
             if ngram[0] == 'above':
                 try:
-                    lo = float(ngram[1].strip('$'))
+                    l = float(ngram[1].strip('$'))
                 except ValueError:
                     pass
                 else:
-                    self._price_range[0]= lo
+                    lo = l
 
         wlist = TextBlob(inp).ngrams(n=3)
         for ngram in wlist:
             if ngram[0] == 'higher' and ngram[1] == 'than':
                 try:
-                    hi = float(ngram[2].strip('$'))
+                    h = float(ngram[2].strip('$'))
                 except ValueError:
                     pass
                 else:
-                    self._price_range[1]= hi
+                    hi = h
+
             if ngram[0] == 'lower' and ngram[1] == 'than':
                 try:
-                    lo = float(ngram[2].strip('$'))
+                    l = float(ngram[2].strip('$'))
                 except ValueError:
                     pass
                 else:
-                    self._price_range[0]= lo
+                    lo = l
+        return lo, hi
+
+    def _lemmatize_phrase(self, phrase):
+        """
+        Lemmatize all words in a phrase, return new phrase
+        :param phrase: 
+        :return: 
+        """
+
+        words = list(map(lambda x: Word(x), phrase.split(' ')))
+        lem_words = list(map(lambda x: Word(x.lemmatize()), words))
+        sing_lem_words = list(map(lambda x: x.singularize(), lem_words)) # necessary for words like "iphone"
+
+        return ' '.join(sing_lem_words)
 
     def _process_phrase(self, phrase):
         """
-        Preprocess string. Break the string into nouns and verbs for future processing.
-        :param str phrase: input string
+        Process phrase. extract verbs, nouns and 
+        :param phrase: 
+        :return: 
         """
 
-        # convert the string lowercase
+        # convert the phrase to lowercase string
         phrase = phrase.lower()
+        # convert all words in the phrase to singular form
+        phrase = self._lemmatize_phrase(phrase)
+
+        # search for price range pattern
+        (lo, hi) = self._search_for_price_pattern(phrase)
 
         # replace keywords in the string (if any)
         for word, replace in self._replace_dict.items():
@@ -288,11 +302,11 @@ class Bot(object):
         phrase = TextBlob(phrase).parse()
         words = phrase.split(' ')
 
-        verb = self._get_chunk_verbs(words)
-        nouns = self._get_all_nouns(words)
+        verbs = self._get_chunk_verbs(words)
+        nouns = self._get_chunk_nouns(words)
 
         # return
-        return verb, nouns
+        return verbs, nouns, (lo, hi)
 
     def _ask_for_category(self, inp=None):
 
@@ -311,21 +325,42 @@ class Bot(object):
             self._stop = True
             return
 
-        # break the phrase into nouns and verbs, lemmatize nouns
-        verbs, nouns = self._process_phrase(inp)
+        # break the phrase into nouns and verbs
+        verbs, nouns, (lo, hi) = self._process_phrase(inp)
 
         # detect categories, which are in the user input
-        self._category = [(n, mode) for n, mode in nouns if n in self._categories]
+        cat_n = [n for n in nouns if any(x in self._categories for x in n)]
+        if cat_n:
+            categories = [c for c in cat_n[0] if c in self._categories]
+            modes = [c for c in cat_n[0] if c in self._adjective_dict]
 
-        # try to get brand, if any
+            if modes:
+                self._category = [categories[0], self._adjective_dict.get(modes[0], 'd')]
+            else:
+                self._category = [categories[0], 'd']
+
+
+        # try to get brands, if any
+        self._brand_list = []
         if self._category:
-            self._brand_list = [
-                (n, mode) for n, mode in nouns if n in self._brands[self._category[0][0]]
-            ]
-            # try to get price range
-            self._search_for_price_pattern(inp)
+
+            for chunk in nouns:
+                brands = [ b for b in chunk if b in self._brands[self._category[0]] ]
+                modes = [m for m in chunk if m in self._adjective_dict]
+                if brands:
+                    if modes:
+                        self._brand_list.append((brands[0], self._adjective_dict[modes[0]]))
+                    else:
+                        self._brand_list.append((brands[0], 'd'))
+
+            # set up price range
+            if lo is not None:
+                self._price_range[0] = lo
+            if hi is not None:
+                self._price_range[1] = hi
+
         else:
-            print("\nBot: sorry there is no products that much your request\n")
+            print("\nBot: sorry there are no products that much your request\n")
 
 
 
@@ -336,7 +371,7 @@ class Bot(object):
         and asks to choose one.
         """
 
-        b = self._list_brands(self._category[0][0])
+        b = self._list_brands(self._category[0])
 
         if len(b)>1:
             print ("Bot: Which brand would you prefer?")
@@ -347,12 +382,23 @@ class Bot(object):
                 self._stop = True
                 return
 
-            verbs, nouns = self._process_phrase(inp)
+            verbs, nouns, (lo, hi) = self._process_phrase(inp)
 
-            self._brand_list = [(n, mode) for n, mode in nouns if n in self._brands[self._category[0][0]]]
+            self._brand_list = []
+            for chunk in nouns:
+                brands = [ b for b in chunk if b in self._brands[self._category[0]] ]
+                modes = [m for m in chunk if m in self._adjective_dict]
+                if brands:
+                    if modes:
+                        self._brand_list.append((brands[0], self._adjective_dict[modes[0]]))
+                    else:
+                        self._brand_list.append((brands[0], 'd'))
 
-            # try to get price range
-            self._search_for_price_pattern(inp)
+            # set up price range
+            if lo is not None:
+                self._price_range[0] = lo
+            if hi is not None:
+                self._price_range[1] = hi
 
             if not self._brand_list:
                 print ("Bot: Sorry, we didn't find any brands that much your request\n")
@@ -377,7 +423,7 @@ class Bot(object):
             # switch back to default state
             self._category = None
             self._brand_list = None
-            self._price_range = [-1000, +1000]
+            self._price_range = [-sys.maxsize, +sys.maxsize]
 
             # start new conversation
             self._ask_for_category(inp)
