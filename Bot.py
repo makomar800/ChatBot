@@ -14,483 +14,459 @@ class Bot(object):
         :param str FileName: name of the .csv file with available products
         """
 
-        # default sorting mode for results ('e' means expensive items first)
-        self._default_mode = 'e'
-        # default number of results to show
-        self._default_num = 4
-
         # read data from csv file
         self._data = pd.read_csv(FileName, index_col=0)
         self._data.columns = ['name', 'brand', 'category', 'plan']
 
         # manually add categories
-        self._categories = ['computer', 'phone', 'home', 'drone', 'clock', 'game']
-
-        # rename categories in the data frame
-        mapping = {'Phones & Tablets': 'phone',
-                   'Computing' : 'computer',
-                   'Gaming & VR': 'game',
-                   'Wearables': 'clock',
-                   'Smart Home' : 'home',
-                   'Drones': 'drone'
-                   }
-        for m, val in mapping.items():
-            self._data.loc[self._data['category']==m, 'category'] = val
+        self._categories = {'computer', 'phone', 'home', 'drone', 'clock', 'game'}
 
         # make all the brands lower case
         self._data['brand'] = self._data['brand'].apply(lambda x: x.lower())
+        # add brands
+        self._all_brands = list(self._data['brand'].unique())
 
-        # dictionary, which contains available brands for each category
-        self._brands = dict.fromkeys(self._categories, None)
-        # fill the dictionary brands
-        for c in self._categories:
-            self._brands[c] = list(
-                map(
-                    lambda x: x.lower(), list(self._data.loc[self._data['category']==c, 'brand'].unique())
-                )
-            )
+        # rename categories in the data frame
+        self._map = {'phone':'Phones & Tablets',
+                   'computer':'Computing',
+                   'game':'Gaming & VR',
+                   'clock':'Wearables',
+                   'home':'Smart Home',
+                   'drone':'Drones'
+                   }
 
-        # the following fields describe state of conversation
-        self._category = []   # category of interest
-        self._brand_list = [] # brands of interest
-        self._price_range = [-sys.maxsize, +sys.maxsize] # price range
+        for m, val in self._map.items():
+            self._data.loc[self._data['category']==val, 'category'] = m
 
-        self._stop = False # flag for continuing a conversation
+        # set with quit keywords
+        self._quit_words = {'bye', 'bye-bye', 'exit', 'quit', 'leave'}
+        # set with greeting keywords
+        self._greet_words = {'hi', 'hello'}
+
+        # word list (TextBlob)
+        self._current_input = None
+        # Grammatic type of words
+        self._current_type = None
+        # If we said hi already
+        self._greeted = False
+        # If we asked about category
+        self._asked_cat = False
+        # If we asked about brand
+        self._asked_brand = False
+        # If we asked about searc htype
+        self._asked_search = False
+        # If we asked about products
+        self._asked_prod = False
+        # Current category under discussion
+        self._category = None
+        # Current brand under discussion
+        self._brand = None
+        # Current search type (category first or brand first)
+        self._searchtype = None
 
         # keywords to replace in user input
         self._replace_dict = {'laptop': 'computer',
-                        'macbook': 'apple computer',
-                        'macbookpro': 'apple computer',
-                        'watch': 'clock',
-                        'vacuum cleaner': 'samsung home',
-                        'iphone': 'apple phone',
-                        'galaxy': 'samsung phone',
-                        'virtual reality': 'game ',
-                        'vr': 'game'
-                        }
-        # some dictionary with adjectives to check in input
-        # adjective influence results of sorting
-        self._adjective_dict = {'good': 'e',
-                                'best': 'e',
-                                'fancy': 'e',
-                                'cheap' : 'c',
-                                'cheapest' : 'c',
-                                'non-expensive': 'c',
-                                'in-expensive': 'c',
-                                'inexpensive': 'c'
-                                }
+                              'macbook': 'apple computer',
+                              'macbookpro': 'apple computer',
+                              'macbook pro': 'apple computer',
+                              'macbookair': 'apple computer',
+                              'macbook air': 'apple computer',
+                              'air': 'apple computer',
+                              'pro': 'apple computer',
+                              'watch': 'clock',
+                              'vacuum cleaner': 'samsung home',
+                              'iphone': 'apple phone',
+                              'galaxy': 'samsung phone',
+                              'virtual reality': 'game',
+                              'vr': 'game',
+                              'tablet': 'phone',
+                              'gaming': 'game',
+                              'bot': 'samsung home',
+                              'wearable': 'clock',
+                              'smartphone': 'phone'
+                              }
 
+    @property
+    def current_input(self):
+        return self._current_input
 
-    def _list_brands(self, category):
-        """
-        List all brands that satisfy user's request
-        :param category: 
-        :return: DataFrame with brand names, and basic statistics across them
-        """
+    @property
+    def current_type(self):
+        return self._current_type
 
-        if self._brands[category] is not None:
-            table = {'brands':[], 'number': [], 'max rent':[], 'min rent':[]}
-            for brand in self._brands[category]:
-                data = self._data.loc[
-                       (self._data['category']==category)&(self._data['brand']==brand)&
-                       (self._data['plan']>self._price_range[0])&
-                       (self._data['plan']<self._price_range[1]), :]
+    @current_input.setter
+    def current_input(self, inp):
 
-                if len(data):
-                    table['brands'].append(brand)
-                    table['number'].append(len(data))
-                    table['max rent'].append(data['plan'].max())
-                    table['min rent'].append(data['plan'].min())
+        tb = TextBlob(self._preprocess_inp(inp)).tags
+        self._current_input = [self._process_word(t[0]) for t in tb]
+        self._current_type =[t[1] for t in tb]
 
-            df = pd.DataFrame(table)
-            if len(df)>1:
+    def _process_word(self, w):
+        """Lemmatize and singularize the word"""
 
-                print ("\nBot: OK, we have the following brands:\n")
+        if w not in self._all_brands:
+            w = Word(w).lemmatize()
+            w = Word(w).singularize()
+            w = Word(w).correct()
 
-                output = StringIO()
-                df.to_csv(output)
-                output.seek(0)
-                pt = prettytable.from_csv(output)
+        return w
 
-                print (pt)
-            return df['brands']
+    def _preprocess_inp(self, inp):
+        """Preprocess input string"""
 
-        return []
-
-    def _get_products(self):
-        """
-        Get products that satisfy user request.
-        :return: DataFrame with products
-        """
-        products = []
-        modes = []
-
-        for brand in self._brand_list:
-
-            if brand[1] == 'd':
-                if self._category[1] == 'd':
-                    mode = self._default_mode
-                else:
-                    mode = self._category[1]
-            else:
-                mode = brand[1]
-
-            products.append(self._data.loc[
-                (self._data['category']==self._category[0])&(self._data['brand']==brand[0])&
-                (self._data['plan']>self._price_range[0])&(self._data['plan']<self._price_range[1]),
-                ['name', 'brand', 'plan']])
-
-            if mode == 'e':
-                products[-1].sort_values(by='plan', ascending=False, inplace=True)
-            else:
-                products[-1].sort_values(by='plan', ascending=True, inplace=True)
-
-            modes.append(mode)
-
-        return products, modes
-
-
-    def _list_products(self, products, modes, ind_range):
-        """
-        List all devices from products (list of DataFrames) using modes (sorting)
-        :param str category: current category
-        :param list brand_list: list of brands
-        :return: 
-        """
-
-        print ("\nBot: OK, we have the following options for you:")
-
-
-        # The program is limited to only one brand
-        for prod_single_brand in [products[0]]:
-            output = StringIO()
-
-            if ind_range[-1]>=len(prod_single_brand):
-                ind_range = range(len(prod_single_brand))
-
-            prod_single_brand.iloc[ind_range, :].to_csv(output)
-            output.seek(0)
-            pt = prettytable.from_csv(output)
-
-            print ("\n")
-            print (pt)
-        print ("\n\n")
-
-    def _get_chunk_verbs(self, words):
-        """
-        The function gives chunks with verbs (for future development)
-        :param words: 
-        """
-
-        chunk_verbs = []
-        for w in words:
-            w = w.split('/')
-            if w[2] == 'B-VP':
-                chunk_verbs.append(
-                    [(w[0], w[2])]
-                )
-            elif w[2] == 'I-VP':
-                chunk_verbs[-1].append(
-                    (w[0], w[2])
-                )
-
-        ret_dict = {}
-        for chunk in chunk_verbs[0:1]:
-            verb = [n[0] for n in chunk if n[1] == 'B-VP'][0]
-            ret_dict[verb] = [n[0] for n in chunk if not n[1] == 'B-VP']
-
-        return ret_dict
-
-    def _get_chunk_nouns(self, words):
-        """
-        The function returns list of pairs (noun, mode) where noun can be brand or category
-        and mode denotes adjective -- expensive or cheap (for sorting)
-        :param words: 
-        :return: 
-        """
-        nouns = []
-        for w in words:
-            w = w.split('/')
-            if w[2] == 'B-NP':
-                nouns.append([w[0]])
-            elif w[2] == 'I-NP':
-                nouns[-1].append(w[0])
-
-        return nouns
-
-    def _search_for_price_pattern(self, inp):
-        """
-        This function searches for price pattern of the form:
-        'from d to d'
-        'between d and d'
-        'below d'
-        'under d'
-        'above d'
-        'higher than d'
-        'lower than d'
-        
-        :param inp: 
-        :return: 
-        """
-
-        lo = None
-        hi = None
-        wlist = TextBlob(inp).ngrams(n=4)
-        for ngram in wlist:
-            if ((ngram[0] == 'from' and ngram[2] == 'to') or
-                    (ngram[0] == 'between' and ngram[2] == 'and')):
-                try:
-                    l = float(ngram[1].strip('$'))
-                    h = float(ngram[3].strip('$'))
-                except ValueError:
-                    pass
-                else:
-                    lo = l
-                    hi = h
-
-        wlist = TextBlob(inp).ngrams(n=2)
-        for ngram in wlist:
-            if ngram[0] == 'below' or ngram[0] == 'under':
-                try:
-                    h = float(ngram[1].strip('$'))
-                except ValueError:
-                    pass
-                else:
-                    hi = h
-
-            if ngram[0] == 'above':
-                try:
-                    l = float(ngram[1].strip('$'))
-                except ValueError:
-                    pass
-                else:
-                    lo = l
-
-        wlist = TextBlob(inp).ngrams(n=3)
-        for ngram in wlist:
-            if ngram[0] == 'higher' and ngram[1] == 'than':
-                try:
-                    h = float(ngram[2].strip('$'))
-                except ValueError:
-                    pass
-                else:
-                    hi = h
-
-            if ngram[0] == 'lower' and ngram[1] == 'than':
-                try:
-                    l = float(ngram[2].strip('$'))
-                except ValueError:
-                    pass
-                else:
-                    lo = l
-        return lo, hi
-
-    def _lemmatize_phrase(self, phrase):
-        """
-        Lemmatize all words in a phrase, return new phrase
-        :param phrase: 
-        :return: 
-        """
-
-        words = list(map(lambda x: Word(x), phrase.split(' ')))
-        lem_words = list(map(lambda x: Word(x.lemmatize()), words))
-        sing_lem_words = list(map(lambda x: x.singularize(), lem_words)) # necessary for words like "iphone"
-
-        return ' '.join(sing_lem_words)
-
-    def _process_phrase(self, phrase):
-        """
-        Process phrase. extract verbs, nouns and 
-        :param phrase: 
-        :return: 
-        """
-
-        # convert the phrase to lowercase string
-        phrase = phrase.lower()
-        # convert all words in the phrase to singular form
-        phrase = self._lemmatize_phrase(phrase)
-
-        # search for price range pattern
-        (lo, hi) = self._search_for_price_pattern(phrase)
+        inp = inp.lower()
 
         # replace keywords in the string (if any)
         for word, replace in self._replace_dict.items():
-            if word in phrase:
-                phrase = phrase.replace(word, replace)
+            if word in inp:
+                inp = inp.replace(word, replace)
 
-        phrase = TextBlob(phrase).parse()
-        words = phrase.split(' ')
+        return inp
 
-        verbs = self._get_chunk_verbs(words)
-        nouns = self._get_chunk_nouns(words)
+    def _check_usr_quit(self):
+        """Check if the user wants to quit"""
 
-        # return
-        return verbs, nouns, (lo, hi)
-
-    def _ask_for_category(self, inp=None):
-        """
-        Initial stage of conversation.
-        Here we are trying to get a category from the user.
-        And try to search for brand and price range
-        """
-
-        # get input from user
-        if inp is None:
-            inp = input("Bot: How can I help you?\n" + "User: ")
-
-        # patch for exist, not the best solution
-        if 'exit' in inp:
-            self._stop = True
-            return
-
-        # break the phrase into nouns and verbs
-        verbs, nouns, (lo, hi) = self._process_phrase(inp)
-
-        # detect categories, which are in the user input
-        cat_n = [n for n in nouns if any(x in self._categories for x in n)]
-        category = []
-        if cat_n:
-            categories = [c for c in cat_n[0] if c in self._categories]
-            modes = [c for c in cat_n[0] if c in self._adjective_dict]
-
-            if modes:
-                category = [categories[0], self._adjective_dict.get(modes[0], 'd')]
-            else:
-                category = [categories[0], 'd']
-
-
-        # try to get brands, if any
-        brand = []
-        if category:
-
-            for chunk in nouns:
-                brands = [ b for b in chunk if b in self._brands[category[0]] ]
-                modes = [m for m in chunk if m in self._adjective_dict]
-                if brands:
-                    if modes:
-                        brand.append((brands[0], self._adjective_dict[modes[0]]))
-                    else:
-                        brand.append((brands[0], 'd'))
-
-            # set up price range
-            if lo is not None:
-                self._price_range[0] = lo
-            if hi is not None:
-                self._price_range[1] = hi
-
+        if any(inp in self._quit_words for inp in self.current_input):
+            return True
         else:
-            print("\nBot: sorry there are no products that much your request\n")
-
-        return category[0], [brand[0]]
+            return False
 
 
-
-    def _ask_for_brand(self):
-        """
-        If the user didn't specify brand in his/her first sentence,
-        the bot lists all brands for chosen category
-        and asks to choose one.
-        """
-
-        b = self._list_brands(self._category)
-
-        if len(b)>1:
-            print ("Bot: Which brand would you prefer?")
-
-            inp = input("User: ")
-            # patch for exist, not the best solution
-            if 'exit' in inp:
-                self._stop = True
-                return
-
-            verbs, nouns, (lo, hi) = self._process_phrase(inp)
-
-            brand_list = []
-            for chunk in nouns:
-                brands = [ b for b in chunk if b in self._brands[self._category] ]
-                modes = [m for m in chunk if m in self._adjective_dict]
-                if brands:
-                    if modes:
-                        brand_list.append((brands[0], self._adjective_dict[modes[0]]))
-                    else:
-                        brand_list.append((brands[0], 'd'))
-
-            # set up price range
-            if lo is not None:
-                self._price_range[0] = lo
-            if hi is not None:
-                self._price_range[1] = hi
-
-            if not brand_list:
-                print ("Bot: Sorry, we didn't find any brands that much your request\n")
-                return []
-            else:
-                return [brand_list[0]]
-        elif len(b)==1:
-            return [(b.iloc[0], 'd')]
+    def _check_for_greeting(self):
+        """Check if user said hello"""
+        if any(inp in self._greet_words for inp in self.current_input):
+            return True
         else:
-            print ("Sorry, there are no products in specified price range\n")
-            return []
+            return False
 
-    def _ask_for_options(self, ind_range, products, modes):
+    def _say_hi(self):
+        """Say Hi"""
+        if not self._greeted:
+            print("Bot: Hi there!\n")
+        else:
+            print("Bot: Hello again!\n")
+
+
+    def _check_for_category_keywords(self):
         """
-        When there is something else on the list, the bot asks for other options
+        Check if user input contains some category keywords
         :return: 
         """
 
-        if not ind_range[0] == 0:
-            if modes[0] == 'e':
-                inp = input("\nBot: would you like to see cheaper options?\nUser:")
-
-
-
-    def _ask_for_continuation(self):
-        """
-        When all the options are listed, we are asking for continuation.
-        """
-
-        print ("Bot: Would you like to look for something else?")
-
-        inp = input("User: ").lower()
-        if 'no' in inp or 'exit' in inp:
-            self._stop = True
+        if self.current_input is not None:
+            return any(inp_word in self._categories for inp_word in self.current_input)
         else:
-            # switch back to default state
-            self._category = []
-            self._brand_list = []
-            self._price_range = [-sys.maxsize, +sys.maxsize]
+            return False
 
-            # start new conversation
-            self._category, self._brand_list = self._ask_for_category(inp)
-
-    def process_user_input(self):
+    def _get_category_from_input(self):
         """
-        Process user input
+        Extract one category from input
+        :return: 
         """
 
-        while not self._stop:
+        cats = [word for word in self.current_input if word in self._categories]
+        if len(cats)>=1:
+            return cats[0]
+        else:
+            return None
 
-            # ask for category until is clear
-            while not self._category and not self._stop:
-                self._category, self._brand_list = self._ask_for_category()
+    def _check_for_brand_keywords(self):
+        """
+        Check if user input contains some brand keywords
+        :return: 
+        """
 
-            # if didn't get a brand so far, try to ask about brand
-            while not self._brand_list and not self._stop:
-                self._brand_list = self._ask_for_brand()
-                if not self._brand_list:
-                    self._ask_for_continuation()
+        if self.current_input is not None:
+            return any(inp_word in self._all_brands for inp_word in self.current_input)
+        else:
+            return False
+
+    def _get_brand_from_input(self):
+        """
+        Extract one brand from input
+        :return: 
+        """
+
+        brands = [word for word in self.current_input if word in self._all_brands]
+        if len(brands)>=1:
+            return brands[0]
+        else:
+            return None
+
+    def _print_table(self, table):
+        """
+        Print table using prettytable
+        :param data: 
+        :return: 
+        """
+
+        df = pd.DataFrame(table)
+
+        output = StringIO()
+        df.to_csv(output)
+        output.seek(0)
+        pt = prettytable.from_csv(output)
+
+        print (pt)
+
+    def _list_categories(self, brand=None):
+        """ List available categories of the products"""
 
 
-            if not self._stop:
-                # list all possile options
-                products, modes = self._get_products()
-                self._list_products(products, modes, range(0, self._default_num))
+        if brand is None:
+            table = {'categories':[], 'number of brands': [], 'number of products':[]}
+        else:
+            table = {'categories':[], 'number of products':[]}
 
-                # ask if we are going to proceed conversation
-                self._ask_for_continuation()
+        for cat in self._categories:
 
-if __name__=='__main__':
+            if brand is None:
+                data = self._data.loc[self._data['category']==cat, :]
+                table['categories'].append(self._map[cat])
+                table['number of brands'].append(len(list(data['brand'].unique())))
+                table['number of products'].append(len(data))
+            else:
+                data = self._data.loc[(self._data['category']==cat)&(self._data['brand']==brand), :]
+                if len(data):
+                    table['categories'].append(self._map[cat])
+                    table['number of products'].append(len(data))
+
+        self._print_table(table)
+
+    def _list_brands(self, category=None):
+        """ List available brands of the products"""
+
+
+        if category is not None:
+            table = {'brands':[], 'number of products': []}
+            cat_brands = list(self._data.loc[self._data['category']==category, 'brand'].unique())
+        else:
+            table = {'brands':[], 'number of categories': [], 'number of products': []}
+            cat_brands = self._all_brands
+
+        for brand in cat_brands:
+            if category:
+                data = self._data.loc[
+                       (self._data['category']==category)&(self._data['brand']==brand), :]
+
+                if len(data):
+                    table['brands'].append(brand)
+                    table['number of products'].append(len(data))
+            else:
+                data = self._data.loc[(self._data['brand']==brand), :]
+
+                if len(data):
+                    table['brands'].append(brand)
+                    table['number of categories'].append(len(list(data['category'].unique())))
+                    table['number of products'].append(len(data))
+
+        self._print_table(table)
+
+    def _list_products(self, category, brand):
+        """
+        List all products from category and brands
+        :param str category: current category
+        :param str brand: brand
+        :return: 
+        """
+
+        products = self._data.loc[
+            (self._data['category']==category)&(self._data['brand']==brand),
+            ['name', 'brand', 'plan']]
+
+        products.sort_values(by='plan', ascending=False, inplace=True)
+
+        output = StringIO()
+        products.to_csv(output)
+        output.seek(0)
+        pt = prettytable.from_csv(output)
+
+        print (pt)
+
+    def _check_searchtype_keywords(self):
+        """Check if user would like to go after brands or caegories"""
+
+        if self.current_input is not None:
+            return any(inp_word in ('brand', 'category') for inp_word in self.current_input)
+        else:
+            return False
+
+    def _get_searchtype_from_input(self):
+        """Get search type"""
+
+        if 'category' in self.current_input:
+            return 'category'
+        elif 'brand' in self.current_input:
+            return 'brand'
+        else:
+            return None
+
+    def _check_no_input(self):
+        """Check if user said no"""
+
+        if (self._current_input and
+                ('no' in self._current_input or 'not' in self._current_input)):
+            return True
+        else:
+            return False
+
+    def _check_yes_input(self):
+        """Check if user said yes"""
+
+        if ((self._current_input) and
+                ('ye' in self._current_input or 'yep' in self._current_input)):
+            return True
+
+    def _back_to_default(self):
+
+        self._asked_cat = False
+        self._asked_brand = False
+        self._asked_search = False
+        self._asked_prod = False
+        self._category = None
+        self._brand = None
+        self._searchtype = None
+
+    def start_conversation(self):
+
+        self.current_input = input("Bot: Hi, how can I help you?\nUser: ")
+
+        while not self._check_usr_quit():
+
+            # check for greeting
+            if self._check_for_greeting():
+                self._say_hi()
+
+            # check for No answer
+            if self._check_no_input():
+                if self._asked_prod or self._asked_search:
+                    break
+                else:
+                    self._back_to_default()
+            elif self._check_yes_input():
+                if self._asked_prod:
+                    self._back_to_default()
+                if self._asked_cat or self._asked_brand or self._asked_search:
+                    self._asked_cat = False
+                    self._asked_brand = False
+                    self._asked_search = False
+                    print ("Bot: Please, specify\n")
+            elif self._asked_prod:
+                self._back_to_default()
+
+
+            # check for category keywords in input
+            if self._check_for_category_keywords():
+                self._category = self._get_category_from_input()
+
+            # check for brand keywords in input
+            if self._check_for_brand_keywords():
+                self._brand = self._get_brand_from_input()
+
+            # check for "brand" and "category" keywords:
+            if self._check_searchtype_keywords():
+                self._searchtype = self._get_searchtype_from_input()
+
+
+            # The main decision tree
+            if self._category is None and self._brand is None and self._searchtype is None:
+
+                if self._asked_search:
+                    print ("Sorry, I didn't understand\n")
+
+                print ("""Bot: Would you like to look at CATEGORIES or BRANDS?
+                Please, choose or enter specific PRODUCT/BRAND NAME (like iPhone or Samsung)\n""")
+                self._asked_search = True
+
+                self._asked_cat = False
+                self._asked_brand = False
+                self._asked_prod = False
+
+            elif self._category is None and self._brand is None and self._searchtype is 'category':
+
+                if self._asked_cat:
+                    print ("Sorry, I didn't understand\n")
+
+                print ("Bot: We have the following categories for you today:\n")
+                self._list_categories()
+                print ("Bot: do you have a particular category in mind?\n")
+                self._asked_cat= True
+
+                self._asked_brand = False
+                self._asked_search = False
+                self._asked_prod = False
+
+            elif self._category is None and self._brand is None and self._searchtype is 'brand':
+
+                if self._asked_brand:
+                    print ("Sorry, I didn't understand\n")
+
+                print ("Bot: We have the following brands for you today:\n")
+                self._list_brands()
+                print ("Bot: do you have a brand in mind?\n")
+                self._asked_brand= True
+
+                self._asked_cat = False
+                self._asked_search = False
+                self._asked_prod = False
+
+            elif self._category and self._brand is None:
+
+                if self._asked_brand:
+                    print ("Sorry, I didn't understand\n")
+
+                print("Bot: The category {0} has the following brands:\n".format(self._map[self._category]))
+                self._list_brands(self._category)
+                print ("Bot: do you have a particular brand in mind?\n")
+                self._asked_brand= True
+
+                self._asked_cat = False
+                self._asked_search = False
+                self._asked_prod = False
+
+            elif self._category is None and self._brand:
+
+                if self._asked_cat:
+                    print ("Sorry, I didn't understand\n")
+
+                print("Bot: The brand {0} is in the following categories:\n".format(self._brand))
+                self._list_categories(self._brand)
+                print ("Bot: do you have a category in mind?\n")
+                self._asked_cat= True
+
+                self._asked_brand = False
+                self._asked_search = False
+                self._asked_prod = False
+
+            elif self._category and self._brand:
+                if self._asked_prod:
+                    print ("Sorry, I didn't understand\n")
+
+                print(
+                    "Bot: Here is the list of options for brand {0} in {1}:\n".format(
+                        self._brand, self._map[self._category]))
+                self._list_products(self._category, self._brand)
+                print("Bot: would you like to look at other products?\n")
+
+                self._asked_prod = True
+
+                self._asked_cat = False
+                self._asked_brand = False
+                self._asked_search = False
+
+            self.current_input = input("User: ")
+
+        print("Bot: See you later!")
+
+if __name__ == '__main__':
 
     bot = Bot('data.csv')
-    bot.process_user_input()
+    bot.start_conversation()
+
+
+
+
+
+
+
 
