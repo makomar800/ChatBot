@@ -51,8 +51,8 @@ class Bot(object):
             )
 
         # the following fields describe state of conversation
-        self._category = None   # category of interest
-        self._brand_list = None # brands of interest
+        self._category = []   # category of interest
+        self._brand_list = [] # brands of interest
         self._price_range = [-sys.maxsize, +sys.maxsize] # price range
 
         self._stop = False # flag for continuing a conversation
@@ -85,7 +85,7 @@ class Bot(object):
         """
         List all brands that satisfy user's request
         :param category: 
-        :return: number of entries in the table 
+        :return: DataFrame with brand names, and basic statistics across them
         """
 
         if self._brands[category] is not None:
@@ -117,9 +117,42 @@ class Bot(object):
 
         return []
 
-    def _list_devices(self, category, brand_list):
+    def _get_products(self):
         """
-        List all devices from category with brands from brand_list
+        Get products that satisfy user request.
+        :return: DataFrame with products
+        """
+        products = []
+        modes = []
+
+        for brand in self._brand_list:
+
+            if brand[1] == 'd':
+                if self._category[1] == 'd':
+                    mode = self._default_mode
+                else:
+                    mode = self._category[1]
+            else:
+                mode = brand[1]
+
+            products.append(self._data.loc[
+                (self._data['category']==self._category[0])&(self._data['brand']==brand[0])&
+                (self._data['plan']>self._price_range[0])&(self._data['plan']<self._price_range[1]),
+                ['name', 'brand', 'plan']])
+
+            if mode == 'e':
+                products[-1].sort_values(by='plan', ascending=False, inplace=True)
+            else:
+                products[-1].sort_values(by='plan', ascending=True, inplace=True)
+
+            modes.append(mode)
+
+        return products, modes
+
+
+    def _list_products(self, products, modes, ind_range):
+        """
+        List all devices from products (list of DataFrames) using modes (sorting)
         :param str category: current category
         :param list brand_list: list of brands
         :return: 
@@ -127,29 +160,15 @@ class Bot(object):
 
         print ("\nBot: OK, we have the following options for you:")
 
-        for brand in brand_list:
 
-            if brand[1] == 'd':
-                if category[1] == 'd':
-                    mode = self._default_mode
-                else:
-                    mode = category[1]
-            else:
-                mode = brand[1]
-
-            products = self._data.loc[
-                (self._data['category']==self._category[0])&(self._data['brand']==brand[0])&
-                (self._data['plan']>self._price_range[0])&(self._data['plan']<self._price_range[1]),
-                ['name', 'brand', 'plan']]
-
-            if mode == 'e':
-                products.sort_values(by='plan', ascending=False, inplace=True)
-            else:
-                products.sort_values(by='plan', ascending=True, inplace=True)
-
-
+        # The program is limited to only one brand
+        for prod_single_brand in [products[0]]:
             output = StringIO()
-            products.head(n=self._default_num).to_csv(output)
+
+            if ind_range[-1]>=len(prod_single_brand):
+                ind_range = range(len(prod_single_brand))
+
+            prod_single_brand.iloc[ind_range, :].to_csv(output)
             output.seek(0)
             pt = prettytable.from_csv(output)
 
@@ -309,7 +328,6 @@ class Bot(object):
         return verbs, nouns, (lo, hi)
 
     def _ask_for_category(self, inp=None):
-
         """
         Initial stage of conversation.
         Here we are trying to get a category from the user.
@@ -330,28 +348,29 @@ class Bot(object):
 
         # detect categories, which are in the user input
         cat_n = [n for n in nouns if any(x in self._categories for x in n)]
+        category = []
         if cat_n:
             categories = [c for c in cat_n[0] if c in self._categories]
             modes = [c for c in cat_n[0] if c in self._adjective_dict]
 
             if modes:
-                self._category = [categories[0], self._adjective_dict.get(modes[0], 'd')]
+                category = [categories[0], self._adjective_dict.get(modes[0], 'd')]
             else:
-                self._category = [categories[0], 'd']
+                category = [categories[0], 'd']
 
 
         # try to get brands, if any
-        self._brand_list = []
-        if self._category:
+        brand = []
+        if category:
 
             for chunk in nouns:
-                brands = [ b for b in chunk if b in self._brands[self._category[0]] ]
+                brands = [ b for b in chunk if b in self._brands[category[0]] ]
                 modes = [m for m in chunk if m in self._adjective_dict]
                 if brands:
                     if modes:
-                        self._brand_list.append((brands[0], self._adjective_dict[modes[0]]))
+                        brand.append((brands[0], self._adjective_dict[modes[0]]))
                     else:
-                        self._brand_list.append((brands[0], 'd'))
+                        brand.append((brands[0], 'd'))
 
             # set up price range
             if lo is not None:
@@ -362,6 +381,8 @@ class Bot(object):
         else:
             print("\nBot: sorry there are no products that much your request\n")
 
+        return category[0], [brand[0]]
+
 
 
     def _ask_for_brand(self):
@@ -371,7 +392,7 @@ class Bot(object):
         and asks to choose one.
         """
 
-        b = self._list_brands(self._category[0])
+        b = self._list_brands(self._category)
 
         if len(b)>1:
             print ("Bot: Which brand would you prefer?")
@@ -384,15 +405,15 @@ class Bot(object):
 
             verbs, nouns, (lo, hi) = self._process_phrase(inp)
 
-            self._brand_list = []
+            brand_list = []
             for chunk in nouns:
-                brands = [ b for b in chunk if b in self._brands[self._category[0]] ]
+                brands = [ b for b in chunk if b in self._brands[self._category] ]
                 modes = [m for m in chunk if m in self._adjective_dict]
                 if brands:
                     if modes:
-                        self._brand_list.append((brands[0], self._adjective_dict[modes[0]]))
+                        brand_list.append((brands[0], self._adjective_dict[modes[0]]))
                     else:
-                        self._brand_list.append((brands[0], 'd'))
+                        brand_list.append((brands[0], 'd'))
 
             # set up price range
             if lo is not None:
@@ -400,18 +421,32 @@ class Bot(object):
             if hi is not None:
                 self._price_range[1] = hi
 
-            if not self._brand_list:
+            if not brand_list:
                 print ("Bot: Sorry, we didn't find any brands that much your request\n")
+                return []
+            else:
+                return [brand_list[0]]
         elif len(b)==1:
-            self._brand_list = [(b.iloc[0], 'd')]
+            return [(b.iloc[0], 'd')]
         else:
-            print ("Sorry, there is no products in specified price range\n")
-            self._ask_for_continuation()
+            print ("Sorry, there are no products in specified price range\n")
+            return []
+
+    def _ask_for_options(self, ind_range, products, modes):
+        """
+        When there is something else on the list, the bot asks for other options
+        :return: 
+        """
+
+        if not ind_range[0] == 0:
+            if modes[0] == 'e':
+                inp = input("\nBot: would you like to see cheaper options?\nUser:")
+
 
 
     def _ask_for_continuation(self):
         """
-        When all the oprions are listed, we are asking for continuation.
+        When all the options are listed, we are asking for continuation.
         """
 
         print ("Bot: Would you like to look for something else?")
@@ -421,12 +456,12 @@ class Bot(object):
             self._stop = True
         else:
             # switch back to default state
-            self._category = None
-            self._brand_list = None
+            self._category = []
+            self._brand_list = []
             self._price_range = [-sys.maxsize, +sys.maxsize]
 
             # start new conversation
-            self._ask_for_category(inp)
+            self._category, self._brand_list = self._ask_for_category(inp)
 
     def process_user_input(self):
         """
@@ -437,16 +472,19 @@ class Bot(object):
 
             # ask for category until is clear
             while not self._category and not self._stop:
-                self._ask_for_category()
+                self._category, self._brand_list = self._ask_for_category()
 
             # if didn't get a brand so far, try to ask about brand
             while not self._brand_list and not self._stop:
-                self._ask_for_brand()
+                self._brand_list = self._ask_for_brand()
+                if not self._brand_list:
+                    self._ask_for_continuation()
 
 
             if not self._stop:
                 # list all possile options
-                self._list_devices(self._category, self._brand_list)
+                products, modes = self._get_products()
+                self._list_products(products, modes, range(0, self._default_num))
 
                 # ask if we are going to proceed conversation
                 self._ask_for_continuation()

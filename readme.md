@@ -2,7 +2,7 @@
 
 ## Prerequisites:
 
-* Python 2.7
+* Python 3.6
 * Library **TextBlob** for NLP
 * Library **prettytable** for tables output
 
