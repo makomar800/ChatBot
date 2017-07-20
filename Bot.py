@@ -360,7 +360,13 @@ class Bot(object):
         """Check if user said yes"""
 
         if ((self._current_input) and
-                ('ye' in self._current_input or 'yep' in self._current_input or 'yeah' in self._current_input)):
+                ('ye' in self._current_input or
+                         'yep' in self._current_input or
+                         'yeah' in self._current_input or
+                     ('would' in self._current_input and 'not' not in self._current_input) or
+                     ('want' in self._current_input and 'not' not in self._current_input)
+                 )
+            ):
             return True
 
     def _back_to_default(self):
