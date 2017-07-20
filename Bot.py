@@ -514,6 +514,9 @@ class Bot(object):
             # The main decision tree
             if self._category is None and self._brand is None and self._searchtype is None:
 
+                if self._asked_cat == True:
+                    print ("Bot: sorry, there is no such a product or category\n")
+
                 print ("""Bot: we have the following categories for you today:\n""")
                 self._list_categories(self._data)
                 print ("Bot: do you have a particular category in mind?\n")
@@ -525,6 +528,9 @@ class Bot(object):
 
             elif self._category is None and self._brand is None and self._searchtype is 'category':
 
+                if self._asked_cat == True:
+                    print ("Bot: sorry, there is no such a product or category\n")
+
                 print ("Bot: We have the following categories for you today:\n")
                 self._list_categories(self._data)
                 print ("Bot: do you have a particular category in mind?\n")
@@ -533,6 +539,9 @@ class Bot(object):
                 self._asked_brand = False
 
             elif self._category is None and self._brand is None and self._searchtype is 'brand':
+
+                if self._asked_brand == True:
+                    print ("Bot: sorry, there is no such a product or category\n")
 
                 print ("Bot: We have the following brands for you today:\n")
                 self._list_brands(self._data)
