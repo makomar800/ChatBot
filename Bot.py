@@ -89,7 +89,13 @@ class Bot(object):
                               'wearable': 'clock',
                               'smartphone': 'phone',
                               'computing': 'computer',
-                              'vive': 'game htc'
+                              'vive': 'game htc',
+                              "don't": 'do not',
+                              'house': 'home',
+                              'like': 'want',
+                              'need': 'want',
+                              'give': 'want',
+                              'smart': 'home'
                               }
 
     @property
@@ -177,7 +183,9 @@ class Bot(object):
         :return: 
         """
 
-        cats = [word for word in self.current_input if word in self._categories]
+        words = self._analyze_sentence_structure(self.current_input)
+
+        cats = [word for word in words if word in self._categories]
         if len(cats)>=1:
             return cats[0]
         else:
@@ -200,11 +208,50 @@ class Bot(object):
         :return: 
         """
 
-        brands = [word for word in self.current_input if word in self._all_brands]
+        words = self._analyze_sentence_structure(self.current_input)
+
+        brands = [word for word in words if word in self._all_brands]
         if len(brands)>=1:
             return brands[0]
         else:
             return None
+
+    def _analyze_sentence_structure(self, words):
+        """
+        Analyzes sentence structure and discards negated terms
+        dumb approach: go through sentence,
+        if see 'not', 'no', 'hate', 'dislike', 'discard', discard everything until 'but' or next 'want'-like
+        verb found
+        :param words: 
+        :return: 
+        """
+
+        words_to_ret = []
+        negs = {'no', 'not'}
+        hates = {'hate', 'dislike', 'discard'}
+        neg_cancellers = {'but', 'want', 'like', 'need'}
+        # dumb approach: go through sentence,
+        # if see 'not', 'no', 'hate', 'dislike', 'discard', discard everything until 'but' or next 'want' found
+        negation = False
+        for ind, w in enumerate(words):
+
+            if not ind == len(words)-1:
+                if words[ind] in negs and not words[ind+1] in hates:
+                    negation = True
+            if not ind == 0:
+                if words[ind] in hates and not words[ind-1] in negs:
+                    negation = True
+                if negation and words[ind] in neg_cancellers and words[ind-1] not in negs:
+                    negation = False
+            else:
+                if words[ind] in hates:
+                    negation = True
+
+            if not negation:
+                words_to_ret.append(w)
+
+        return words_to_ret
+
 
     def _print_table(self, table):
         """
@@ -349,9 +396,9 @@ class Bot(object):
         """Check if user said no"""
 
         if (self._current_input and
-                ('no' in self._current_input or
-                         'not' in self._current_input or
-                         'nope' in self._raw_input)):
+                ('no' in self._current_input or 'not' in self._current_input or 'nope' in self._raw_input) and
+                not (self._check_for_brand_keywords())
+            ):
             return True
         else:
             return False
@@ -363,8 +410,7 @@ class Bot(object):
                 ('ye' in self._current_input or
                          'yep' in self._current_input or
                          'yeah' in self._current_input or
-                     ('would' in self._current_input and 'not' not in self._current_input) or
-                     ('want' in self._current_input and 'not' not in self._current_input)
+                     ('would' in self._current_input and 'not' not in self._current_input)
                  )
             ):
             return True
@@ -384,6 +430,7 @@ class Bot(object):
         """Count number of matches of input with item"""
 
         words = self._raw_input.lower().split(' ')
+        words = self._analyze_sentence_structure(words)
         wname = str(item['name']).lower().split(' ')
         pname = str(item['plan']).lower().split(' ')
         matches = [w for w in words if
