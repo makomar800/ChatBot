@@ -360,7 +360,7 @@ class Bot(object):
         """Check if user said yes"""
 
         if ((self._current_input) and
-                ('ye' in self._current_input or 'yep' in self._current_input)):
+                ('ye' in self._current_input or 'yep' in self._current_input or 'yeah' in self._current_input)):
             return True
 
     def _back_to_default(self):
@@ -454,39 +454,26 @@ class Bot(object):
         while not self._check_usr_quit():
 
             if self._asked_conv:
+                self._back_to_default()
                 if not self._ask_for_conversation():
                     break
                 self._asked_conv = False
 
             # check for No answer
             if self._check_no_input():
-                if self._asked_prod:
-                    break
-                else:
+                if self._asked_cat or self._asked_brand:
                     self._back_to_default()
                     if not self._ask_for_conversation():
                         break
                     self._asked_conv = False
-            # check Yes answer
+
+            # check for Yes answer
             elif self._check_yes_input():
-                if self._asked_prod:
-                    self._back_to_default()
-                    if not self._ask_for_conversation():
-                        break
-                    self._asked_conv = False
 
                 if self._asked_cat or self._asked_brand:
                     self._asked_cat = False
                     self._asked_brand = False
-                    self._asked_search = False
                     print ("Bot: Please, specify\n")
-
-            elif self._asked_prod:
-                self._back_to_default()
-                if not self._ask_for_conversation():
-                    break
-                self._asked_conv = False
-
 
             # check for category keywords in input
             if self._check_for_category_keywords():
@@ -533,7 +520,6 @@ class Bot(object):
 
                 self._asked_cat = True
                 self._asked_brand = False
-                self._asked_prod = False
 
                 self._searchtype = 'category'
 
@@ -545,7 +531,6 @@ class Bot(object):
 
                 self._asked_cat= True
                 self._asked_brand = False
-                self._asked_prod = False
 
             elif self._category is None and self._brand is None and self._searchtype is 'brand':
 
@@ -553,9 +538,7 @@ class Bot(object):
                 self._list_brands(self._data)
                 print ("Bot: do you have a brand in mind?\n")
                 self._asked_brand= True
-
                 self._asked_cat = False
-                self._asked_prod = False
 
             elif self._category and nbrand>1:
                 if self._asked_brand:
@@ -567,7 +550,6 @@ class Bot(object):
 
                 self._asked_brand= True
                 self._asked_cat = False
-                self._asked_prod = False
 
             elif ncat>1 and self._brand:
 
@@ -579,11 +561,8 @@ class Bot(object):
                 print ("Bot: do you have a category in mind?\n")
                 self._asked_cat= True
                 self._asked_brand = False
-                self._asked_prod = False
 
             elif ncat==1 and nbrand==1:
-                if self._asked_prod:
-                    print ("Sorry, I didn't understand\n")
 
                 print(
                     "Bot: Here is the list of options for brand {0} in {1}:\n".format(
@@ -593,11 +572,11 @@ class Bot(object):
                 # ask user for particular item
                 self._ask_for_particular_item(results)
 
-                self._asked_prod = True
+                self._asked_conv = True
                 self._asked_cat = False
                 self._asked_brand = False
 
-            if not self._asked_prod:
+            if not self._asked_conv:
                 self.current_input = input("User: ")
 
         print("Bot: See you later!")
