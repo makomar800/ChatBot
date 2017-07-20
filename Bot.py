@@ -493,6 +493,12 @@ class Bot(object):
                 return True
             if self._check_yes_input():
                 return True
+            if self._check_for_brand_keywords():
+                return True
+            if self._check_searchtype_keywords():
+                return True
+            if self._check_for_category_keywords():
+                return True
 
             self.current_input = input("Bot: Sorry? Would you like to look at our products?\nUser: ")
 
