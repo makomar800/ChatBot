@@ -227,7 +227,7 @@ class Bot(object):
         """
 
         words_to_ret = []
-        negs = {'no', 'not'}
+        negs = {'no', 'not', "don't"}
         hates = {'hate', 'dislike', 'discard'}
         neg_cancellers = {'but', 'want', 'like', 'need'}
         # dumb approach: go through sentence,
